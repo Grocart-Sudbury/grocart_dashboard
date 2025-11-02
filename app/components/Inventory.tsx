@@ -1,7 +1,18 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Table, Button, Typography, Spin, message, Modal, Form, Input, InputNumber, Select } from "antd";
+import {
+  Table,
+  Button,
+  Typography,
+  Spin,
+  message,
+  Modal,
+  Form,
+  Input,
+  InputNumber,
+  Select,
+} from "antd";
 import { API_BASE_URL, apiFetch } from "../api/config";
 
 const { Title } = Typography;
@@ -31,6 +42,7 @@ const Inventory: React.FC = () => {
   const [filteredData, setFilteredData] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isAddMode, setIsAddMode] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [form] = Form.useForm();
   const [selectedCategory, setSelectedCategory] = useState<number | "all">("all");
@@ -40,11 +52,10 @@ const Inventory: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // Apply category filter
     if (selectedCategory === "all") {
       setFilteredData(inventoryData);
     } else {
-      setFilteredData(inventoryData.filter(p => p.category?.id === selectedCategory));
+      setFilteredData(inventoryData.filter((p) => p.category?.id === selectedCategory));
     }
   }, [selectedCategory, inventoryData]);
 
@@ -61,10 +72,13 @@ const Inventory: React.FC = () => {
       const categoriesData: Category[] = await res.json();
       setCategories(categoriesData);
 
-      // Flatten products with category info
-      const allProducts = categoriesData.flatMap(cat =>
-        cat.products.map(p => ({ ...p, category: { id: cat.id, name: cat.name } }))
+      const allProducts = categoriesData.flatMap((cat) =>
+        cat.products.map((p) => ({
+          ...p,
+          category: { id: cat.id, name: cat.name },
+        }))
       );
+
       setInventoryData(allProducts);
       setFilteredData(allProducts);
     } catch (error: any) {
@@ -76,6 +90,7 @@ const Inventory: React.FC = () => {
   };
 
   const openEditModal = (product: Product) => {
+    setIsAddMode(false);
     setEditingProduct(product);
     form.setFieldsValue({
       product: product.product,
@@ -90,31 +105,55 @@ const Inventory: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleUpdate = async () => {
+  const openAddModal = () => {
+    setIsAddMode(true);
+    setEditingProduct(null);
+    form.resetFields();
+    setModalVisible(true);
+  };
+
+  const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      if (!editingProduct) return;
-
       const payload = {
-        ...editingProduct,
-        ...values,
+        product: values.product,
+        offerPrice: values.offerPrice,
+        originalPrice: values.originalPrice,
+        stock: values.stock,
+        quantity: values.quantity,
+        description: values.description,
+        imageUrl: values.imageUrl,
         category: { id: values.categoryId },
       };
 
-      console.log("PUT request payload:", payload);
+    if (isAddMode) {
+  console.log("🟢 [CREATE PRODUCT] Payload being sent:");
+  console.log(JSON.stringify(payload, null, 2)); // pretty-print JSON
 
-      await apiFetch(`/products/${editingProduct.id}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      });
+  await apiFetch(`/products`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 
-      message.success("Product updated successfully");
+  message.success("Product added successfully");
+} else if (editingProduct) {
+  const updatePayload = { ...payload, id: editingProduct.id };
+  console.log("🟡 [UPDATE PRODUCT] Payload being sent:");
+  console.log(JSON.stringify(updatePayload, null, 2)); // pretty-print JSON
+
+  await apiFetch(`/products/${editingProduct.id}`, {
+    method: "PUT",
+    body: JSON.stringify(updatePayload),
+  });
+
+  message.success("Product updated successfully");
+}
+
       setModalVisible(false);
-      setEditingProduct(null);
       fetchInventoryAndCategories();
     } catch (error: any) {
       console.error(error);
-      message.error(error.message || "Error updating product");
+      message.error(error.message || "Error saving product");
     }
   };
 
@@ -124,7 +163,11 @@ const Inventory: React.FC = () => {
       dataIndex: "imageUrl",
       key: "image",
       render: (url: string) => (
-        <img src={url} alt="Product" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 4 }} />
+        <img
+          src={url}
+          alt="Product"
+          style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 4 }}
+        />
       ),
     },
     { title: "Product Name", dataIndex: "product", key: "product" },
@@ -152,7 +195,12 @@ const Inventory: React.FC = () => {
 
   return (
     <>
-      <Title level={3}>Inventory Management</Title>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+        <Title level={3}>Inventory Management</Title>
+        <Button type="primary" onClick={openAddModal}>
+          + Add Product
+        </Button>
+      </div>
 
       {/* Category Filter */}
       <div style={{ marginBottom: 16 }}>
@@ -177,30 +225,50 @@ const Inventory: React.FC = () => {
       />
 
       <Modal
-        title="Edit Product"
-        visible={modalVisible}
+        title={isAddMode ? "Add New Product" : "Edit Product"}
+        open={modalVisible}
         onCancel={() => setModalVisible(false)}
-        onOk={handleUpdate}
-        okText="Update"
+        onOk={handleSubmit}
+        okText={isAddMode ? "Add" : "Update"}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="product" label="Product Name" rules={[{ required: true, message: "Enter product name" }]}>
+          <Form.Item
+            name="product"
+            label="Product Name"
+            rules={[{ required: true, message: "Enter product name" }]}
+          >
             <Input />
           </Form.Item>
 
-          <Form.Item name="offerPrice" label="Offer Price" rules={[{ required: true, message: "Enter price" }]}>
+          <Form.Item
+            name="offerPrice"
+            label="Offer Price"
+            rules={[{ required: true, message: "Enter price" }]}
+          >
             <InputNumber min={0} style={{ width: "100%" }} />
           </Form.Item>
 
-          <Form.Item name="originalPrice" label="Original Price" rules={[{ required: true, message: "Enter original price" }]}>
+          <Form.Item
+            name="originalPrice"
+            label="Original Price"
+            rules={[{ required: true, message: "Enter original price" }]}
+          >
             <InputNumber min={0} style={{ width: "100%" }} />
           </Form.Item>
 
-          <Form.Item name="stock" label="Stock" rules={[{ required: true, message: "Enter stock" }]}>
+          <Form.Item
+            name="stock"
+            label="Stock"
+            rules={[{ required: true, message: "Enter stock" }]}
+          >
             <InputNumber min={0} style={{ width: "100%" }} />
           </Form.Item>
 
-          <Form.Item name="quantity" label="Quantity" rules={[{ required: true, message: "Enter quantity" }]}>
+          <Form.Item
+            name="quantity"
+            label="Quantity"
+            rules={[{ required: true, message: "Enter quantity" }]}
+          >
             <Input />
           </Form.Item>
 
@@ -208,17 +276,34 @@ const Inventory: React.FC = () => {
             <Input.TextArea rows={3} />
           </Form.Item>
 
-          <Form.Item name="imageUrl" label="Image URL" rules={[{ required: true, message: "Enter image URL" }]}>
-            <Input onChange={(e) => form.setFieldsValue({ imageUrl: e.target.value })} />
+          <Form.Item
+            name="imageUrl"
+            label="Image URL"
+            rules={[{ required: true, message: "Enter image URL" }]}
+          >
+            <Input />
           </Form.Item>
 
           {form.getFieldValue("imageUrl") && (
             <div style={{ textAlign: "center", marginTop: 10 }}>
-              <img src={form.getFieldValue("imageUrl")} alt="Preview" style={{ width: 120, height: 120, objectFit: "cover", borderRadius: 4 }} />
+              <img
+                src={form.getFieldValue("imageUrl")}
+                alt="Preview"
+                style={{
+                  width: 120,
+                  height: 120,
+                  objectFit: "cover",
+                  borderRadius: 4,
+                }}
+              />
             </div>
           )}
 
-          <Form.Item name="categoryId" label="Category" rules={[{ required: true, message: "Select a category" }]}>
+          <Form.Item
+            name="categoryId"
+            label="Category"
+            rules={[{ required: true, message: "Select a category" }]}
+          >
             <Select placeholder="Select category">
               {categories.map((cat) => (
                 <Option key={cat.id} value={cat.id}>
