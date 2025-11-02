@@ -1,47 +1,45 @@
-# ---- Base builder ----
+# ---- Base image ----
 FROM node:18-alpine AS base
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Install only the OS packages we need
 RUN apk add --no-cache libc6-compat
 
-# ---- Dependencies layer ----
+# ---- Dependencies ----
 FROM base AS deps
 
-# Copy only dependency files
+# Only copy dependency files (this allows Docker to cache npm install)
 COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev  # production deps only
 
-# Install dependencies using npm ci for reproducibility
+# ---- Builder ----
+FROM node:18-alpine AS builder
+WORKDIR /app
+ENV NODE_ENV=development
+
+# Install OS deps
+RUN apk add --no-cache libc6-compat
+
+# Copy dependency files and install all (including dev deps for build)
+COPY package.json package-lock.json* ./
 RUN npm ci
 
-# ---- Build layer ----
-FROM base AS builder
-
-WORKDIR /app
-
-# Copy node_modules from deps to use cache
-COPY --from=deps /app/node_modules ./node_modules
-
-# Copy the rest of the project
+# Copy source code after installing deps to leverage caching
 COPY . .
 
-# Build the Next.js app
+# Build Next.js app
 RUN npm run build
 
-# ---- Production runner ----
-FROM base AS runner
-
+# ---- Production Runner ----
+FROM node:18-alpine AS runner
 WORKDIR /app
-
 ENV NODE_ENV=production
 
-# Copy only necessary runtime files
+# Copy only what we need for runtime
 COPY --from=builder /app/package.json ./
-COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
+COPY --from=deps /app/node_modules ./node_modules
 
 EXPOSE 3000
-
 CMD ["npm", "start"]
